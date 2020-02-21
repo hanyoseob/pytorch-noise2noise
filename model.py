@@ -5,6 +5,8 @@ import torch.nn as nn
 from torch.nn import init
 from torch.optim import lr_scheduler
 
+# U-Net: Convolutional Networks for Biomedical Image Segmentation
+# https://arxiv.org/abs/1505.04597
 class UNet(nn.Module):
     def __init__(self, nch_in, nch_out, nch_ker=64, norm='bnorm'):
         super(UNet, self).__init__()
@@ -116,9 +118,10 @@ class UNet(nn.Module):
 
         return x
 
-
+# Photo-Realistic Single Image Super-Resolution Using a Generative Adversarial Network
+# https://arxiv.org/abs/1609.04802
 class ResNet(nn.Module):
-    def __init__(self, nch_in, nch_out, nch_ker=64, norm='bnorm', nblk=6):
+    def __init__(self, nch_in, nch_out, nch_ker=64, norm='bnorm', nblk=16):
         super(ResNet, self).__init__()
 
         self.nch_in = nch_in
@@ -132,39 +135,27 @@ class ResNet(nn.Module):
         else:
             self.bias = True
 
-        self.enc1 = CNR2d(self.nch_in,      1 * self.nch_ker, kernel_size=7, stride=1, padding=3, norm=self.norm, relu=0.0)
+        self.enc1 = CNR2d(self.nch_in, self.nch_ker, kernel_size=3, stride=1, padding=1, norm=[], relu=0.0)
 
-        self.enc2 = CNR2d(1 * self.nch_ker, 2 * self.nch_ker, kernel_size=4, stride=2, padding=1, norm=self.norm, relu=0.0)
+        res = []
+        for i in range(self.nblk):
+            res += [ResBlock(self.nch_ker, self.nch_ker, kernel_size=3, stride=1, padding=1, norm=self.norm, relu=0.0, padding_mode='reflection')]
+        self.res = nn.Sequential(*res)
 
-        self.enc3 = CNR2d(2 * self.nch_ker, 4 * self.nch_ker, kernel_size=4, stride=2, padding=1, norm=self.norm, relu=0.0)
+        self.dec1 = CNR2d(self.nch_ker, self.nch_ker, kernel_size=3, stride=1, padding=1, norm=norm, relu=[])
 
-        if self.nblk:
-            res = []
-
-            for i in range(self.nblk):
-                res += [ResBlock(4 * self.nch_ker, 4 * self.nch_ker, kernel_size=3, stride=1, padding=1, norm=self.norm, relu=0.0, padding_mode='reflection')]
-
-            self.res = nn.Sequential(*res)
-
-        self.dec3 = DECNR2d(4 * self.nch_ker, 2 * self.nch_ker, kernel_size=4, stride=2, padding=1, norm=self.norm, relu=0.0)
-
-        self.dec2 = DECNR2d(2 * self.nch_ker, 1 * self.nch_ker, kernel_size=4, stride=2, padding=1, norm=self.norm, relu=0.0)
-
-        self.dec1 = CNR2d(1 * self.nch_ker, self.nch_out, kernel_size=7, stride=1, padding=3, norm=[], relu=[], bias=False)
+        self.conv1 = Conv2d(self.nch_ker, self.nch_out, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         x = self.enc1(x)
-        x = self.enc2(x)
-        x = self.enc3(x)
+        x0 = x
 
-        if self.nblk:
-            x = self.res(x)
+        x = self.res(x)
 
-        x = self.dec3(x)
-        x = self.dec2(x)
         x = self.dec1(x)
+        x = x + x0
 
-        x = torch.tanh(x)
+        x = self.conv1(x)
 
         return x
 

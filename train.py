@@ -151,7 +151,8 @@ class Train:
             cmap = None
 
         ## setup network
-        netG = UNet(nch_in, nch_out, nch_ker, norm)
+        # netG = UNet(nch_in, nch_out, nch_ker, norm)
+        netG = ResNet(nch_in, nch_out, nch_ker, norm)
 
         init_net(netG, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
 
@@ -340,7 +341,8 @@ class Train:
         num_batch_test = int((num_test / batch_size) + ((num_test % batch_size) != 0))
 
         ## setup network
-        netG = UNet(nch_in, nch_out, nch_ker, norm)
+        # netG = UNet(nch_in, nch_out, nch_ker, norm)
+        netG = ResNet(nch_in, nch_out, nch_ker, norm)
         init_net(netG, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
 
         ## setup loss & optimization
