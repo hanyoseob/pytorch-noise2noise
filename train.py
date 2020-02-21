@@ -120,13 +120,20 @@ class Train:
         dir_log_train = os.path.join(self.dir_log, self.scope, name_data, 'train')
         dir_log_val = os.path.join(self.dir_log, self.scope, name_data, 'val')
 
+        dir_result_train = os.path.join(self.dir_result, self.scope, name_data, 'train', 'images')
+        dir_result_val = os.path.join(self.dir_result, self.scope, name_data, 'val', 'images')
+        if not os.path.exists(dir_result_train):
+            os.makedirs(dir_result_train)
+        if not os.path.exists(dir_result_val):
+            os.makedirs(dir_result_val)
+
         transform_train = transforms.Compose([Normalize(mean=0.5, std=0.5), RandomFlip(), RandomCrop((self.ny_load, self.nx_load)), ToTensor()])
         transform_val = transforms.Compose([Normalize(mean=0.5, std=0.5), RandomFlip(), RandomCrop((self.ny_load, self.nx_load)), ToTensor()])
 
         transform_inv = transforms.Compose([ToNumpy(), Denormalize(mean=0.5, std=0.5)])
 
-        dataset_train = Dataset(dir_data_train, data_type=self.data_type, nch=self.nch_in, transform=transform_train)
-        dataset_val = Dataset(dir_data_val, data_type=self.data_type, nch=self.nch_in, transform=transform_val)
+        dataset_train = Dataset(dir_data_train, data_type=self.data_type, transform=transform_train, sgm=25)
+        dataset_val = Dataset(dir_data_val, data_type=self.data_type, transform=transform_val, sgm=25)
 
         loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0)
         loader_val = torch.utils.data.DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=0)
@@ -137,14 +144,20 @@ class Train:
         num_batch_train = int((num_train / batch_size) + ((num_train % batch_size) != 0))
         num_batch_val = int((num_val / batch_size) + ((num_val % batch_size) != 0))
 
+
+        if nch_out == 1:
+            cmap = 'gray'
+        else:
+            cmap = None
+
         ## setup network
         netG = UNet(nch_in, nch_out, nch_ker, norm)
 
         init_net(netG, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
 
         ## setup loss & optimization
-        fn_L1 = nn.L1Loss().to(device)      # Regression loss: L1
-        # fn_L2 = nn.MSELoss().to(device)     # Regression loss: L2
+        fn_REG = nn.L1Loss().to(device)      # Regression loss: L1
+        # fn_REG = nn.MSELoss().to(device)     # Regression loss: L2
 
         paramsG = netG.parameters()
 
@@ -166,9 +179,9 @@ class Train:
 
             loss_G_train = []
 
-            for i, data in enumerate(loader_train, 1):
+            for batch, data in enumerate(loader_train, 1):
                 def should(freq):
-                    return freq > 0 and (i % freq == 0 or i == num_batch_train)
+                    return freq > 0 and (batch % freq == 0 or batch == num_batch_train)
 
                 input = data['input'].to(device)
                 label = data['label'].to(device)
@@ -179,7 +192,7 @@ class Train:
                 # backward netG
                 optimG.zero_grad()
 
-                loss_G = fn_L1(output, label)
+                loss_G = fn_REG(output, label)
 
                 loss_G.backward()
                 optimG.step()
@@ -188,18 +201,35 @@ class Train:
                 loss_G_train += [loss_G.item()]
 
                 print('TRAIN: EPOCH %d: BATCH %04d/%04d: LOSS: %.4f'
-                      % (epoch, i, num_batch_train, np.mean(loss_G_train)))
+                      % (epoch, batch, num_batch_train, np.mean(loss_G_train)))
 
                 if should(num_freq_disp):
                     ## show output
                     input = transform_inv(input)
                     label = transform_inv(label)
-
                     output = transform_inv(output)
 
-                    writer_train.add_images('input', input, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
-                    writer_train.add_images('output', output, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
-                    writer_train.add_images('label', label, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    input = np.clip(input, 0, 1)
+                    label = np.clip(label, 0, 1)
+                    output = np.clip(output, 0, 1)
+
+                    writer_train.add_images('input', input, num_batch_train * (epoch - 1) + batch, dataformats='NHWC')
+                    writer_train.add_images('output', output, num_batch_train * (epoch - 1) + batch, dataformats='NHWC')
+                    writer_train.add_images('label', label, num_batch_train * (epoch - 1) + batch, dataformats='NHWC')
+
+                    for j in range(label.shape[0]):
+                        # name = num_train * (epoch - 1) + batch_size * (batch - 1) + j
+                        name = batch_size * (batch - 1) + j
+                        fileset = {'name': name,
+                                   'input': "%04d-input.png" % name,
+                                   'output': "%04d-output.png" % name,
+                                   'label': "%04d-label.png" % name}
+
+                        plt.imsave(os.path.join(dir_result_train, 'images', fileset['input']), input[j, :, :, :].squeeze(), cmap=cmap)
+                        plt.imsave(os.path.join(dir_result_train, 'images', fileset['output']), output[j, :, :, :].squeeze(), cmap=cmap)
+                        plt.imsave(os.path.join(dir_result_train, 'images', fileset['label']), label[j, :, :, :].squeeze(), cmap=cmap)
+
+                        append_index(dir_result_train, fileset)
 
             writer_train.add_scalar('loss_G', np.mean(loss_G_train), epoch)
 
@@ -209,9 +239,9 @@ class Train:
 
                 loss_G_val = []
 
-                for i, data in enumerate(loader_val, 1):
+                for batch, data in enumerate(loader_val, 1):
                     def should(freq):
-                        return freq > 0 and (i % freq == 0 or i == num_batch_val)
+                        return freq > 0 and (batch % freq == 0 or batch == num_batch_val)
 
                     input = data['input'].to(device)
                     label = data['label'].to(device)
@@ -219,23 +249,40 @@ class Train:
                     # forward netG
                     output = netG(input)
 
-                    loss_G = fn_L1(output, label)
+                    loss_G = fn_REG(output, label)
 
                     loss_G_val += [loss_G.item()]
 
                     print('VALID: EPOCH %d: BATCH %04d/%04d: LOSS: %.4f'
-                          % (epoch, i, num_batch_val, np.mean(loss_G_val)))
+                          % (epoch, batch, num_batch_val, np.mean(loss_G_val)))
 
                     if should(num_freq_disp):
                         ## show output
                         input = transform_inv(input)
                         label = transform_inv(label)
-
                         output = transform_inv(output)
 
-                        writer_val.add_images('input', input, num_batch_val * (epoch - 1) + i, dataformats='NHWC')
-                        writer_val.add_images('output', output, num_batch_val * (epoch - 1) + i, dataformats='NHWC')
-                        writer_val.add_images('label', label, num_batch_val * (epoch - 1) + i, dataformats='NHWC')
+                        input = np.clip(input, 0, 1)
+                        label = np.clip(label, 0, 1)
+                        output = np.clip(output, 0, 1)
+
+                        writer_val.add_images('input', input, num_batch_val * (epoch - 1) + batch, dataformats='NHWC')
+                        writer_val.add_images('output', output, num_batch_val * (epoch - 1) + batch, dataformats='NHWC')
+                        writer_val.add_images('label', label, num_batch_val * (epoch - 1) + batch, dataformats='NHWC')
+
+                        for j in range(label.shape[0]):
+                            # name = num_val * (epoch - 1) + batch_size * (batch - 1) + j
+                            name = batch_size * (batch - 1) + j
+                            fileset = {'name': name,
+                                       'input': "%04d-input.png" % name,
+                                       'output': "%04d-output.png" % name,
+                                       'label': "%04d-label.png" % name}
+
+                            plt.imsave(os.path.join(dir_result_val, 'images', fileset['input']), input[j, :, :, :].squeeze(), cmap=cmap)
+                            plt.imsave(os.path.join(dir_result_val, 'images', fileset['output']), output[j, :, :, :].squeeze(), cmap=cmap)
+                            plt.imsave(os.path.join(dir_result_val, 'images', fileset['label']), label[j, :, :, :].squeeze(), cmap=cmap)
+
+                            append_index(dir_result_val, fileset)
 
                 writer_val.add_scalar('loss_G', np.mean(loss_G_val), epoch)
 
@@ -284,7 +331,7 @@ class Train:
         transform_inv = transforms.Compose([ToNumpy(), Denormalize(mean=0.5, std=0.5)])
         transform_ts2np = ToNumpy()
 
-        dataset_test = Dataset(dir_data_test, data_type=self.data_type, nch=self.nch_in, transform=transform_test)
+        dataset_test = Dataset(dir_data_test, data_type=self.data_type, transform=transform_test, sgm=25)
 
         loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -297,7 +344,8 @@ class Train:
         init_net(netG, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
 
         ## setup loss & optimization
-        fn_L1 = nn.L1Loss().to(device)  # L1
+        fn_REG = nn.L1Loss().to(device)  # L1
+        # fn_REG = nn.MSELoss().to(device)  # L1
 
         ## load from checkpoints
         st_epoch = 0
@@ -317,7 +365,7 @@ class Train:
 
                 output = netG(input)
 
-                loss_G = fn_L1(output, label)
+                loss_G = fn_REG(output, label)
 
                 loss_G_test += [loss_G.item()]
 

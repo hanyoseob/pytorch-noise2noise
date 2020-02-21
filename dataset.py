@@ -13,13 +13,12 @@ class Dataset(torch.utils.data.Dataset):
        stuff<number>_density.pt
     """
 
-    def __init__(self, data_dir, data_type='float32', nch=3, transform=None):
+    def __init__(self, data_dir, data_type='float32', transform=None, sgm=25):
         self.data_dir = data_dir
         self.transform = transform
         self.data_type = data_type
-        self.nch = nch
 
-        self.sgm = 25
+        self.sgm = sgm
 
         lst_data = os.listdir(data_dir)
 
@@ -32,7 +31,8 @@ class Dataset(torch.utils.data.Dataset):
         # self.lst_input = lst_input
         # self.lst_label = lst_label
 
-        lst_data.sort()
+        lst_data.sort(key=lambda f: (''.join(filter(str.isdigit, f))))
+        # lst_data.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
 
         self.lst_data = lst_data
 
@@ -67,7 +67,6 @@ class Dataset(torch.utils.data.Dataset):
 
         if data.shape[0] > data.shape[1]:
             data = data.transpose((1, 0, 2))
-
 
         sz = data.shape
 
@@ -248,6 +247,46 @@ class UnifromSample(object):
     return {'input': input, 'label': label}
 
 
+class ZeroPad(object):
+  """Rescale the image in a sample to a given size
+
+  Args:
+    output_size (tuple or int): Desired output size.
+                                If tuple, output is matched to output_size.
+                                If int, smaller of image edges is matched
+                                to output_size keeping aspect ratio the same.
+  """
+
+  def __init__(self, output_size):
+    assert isinstance(output_size, (int, tuple))
+    self.output_size = output_size
+
+  def __call__(self, data):
+    input, label = data['input'], data['label']
+
+    h, w = input.shape[:2]
+
+    if isinstance(self.output_size, int):
+      if h > w:
+        new_h, new_w = self.output_size * h / w, self.output_size
+      else:
+        new_h, new_w = self.output_size, self.output_size * w / h
+    else:
+      new_h, new_w = self.output_size
+
+    new_h, new_w = int(new_h), int(new_w)
+
+    l = (new_w - w)//2
+    r = (new_w - w) - l
+
+    u = (new_h - h)//2
+    b = (new_h - h) - u
+
+    input = np.pad(input, pad_width=((u, b), (l, r), (0, 0)))
+    label = np.pad(label, pad_width=((u, b), (l, r), (0, 0)))
+
+    return {'input': input, 'label': label}
+
 class ToNumpy(object):
     """Convert ndarrays in sample to Tensors."""
 
@@ -268,7 +307,6 @@ class ToNumpy(object):
         # return {'input': input.detach().numpy(), 'label': label.detach().numpy()}
 
 
-
 class Denormalize(object):
     def __init__(self, mean=0.5, std=0.5):
         self.mean = mean
@@ -277,4 +315,3 @@ class Denormalize(object):
     def __call__(self, data):
         data = self.std * data + self.mean
         return data
-
