@@ -13,12 +13,13 @@ class Dataset(torch.utils.data.Dataset):
        stuff<number>_density.pt
     """
 
-    def __init__(self, data_dir, data_type='float32', transform=None, sgm=25):
+    def __init__(self, data_dir, data_type='float32', transform=None, sgm=(25, 25)):
         self.data_dir = data_dir
         self.transform = transform
         self.data_type = data_type
 
-        self.sgm = sgm
+        self.sgm_label = sgm[0]
+        self.sgm_input = sgm[1]
 
         lst_data = os.listdir(data_dir)
 
@@ -70,8 +71,8 @@ class Dataset(torch.utils.data.Dataset):
 
         sz = data.shape
 
-        input = data + self.sgm/255 * np.random.randn(sz[0], sz[1], sz[2])
-        label = data + self.sgm/255 * np.random.randn(sz[0], sz[1], sz[2])
+        label = data + self.sgm_label / 255 * np.random.randn(sz[0], sz[1], sz[2])
+        input = data + self.sgm_input/255 * np.random.randn(sz[0], sz[1], sz[2])
 
         data = {'input': input, 'label': label}
 

@@ -18,13 +18,13 @@ parser.add_argument('--gpu_ids', default='-1', dest='gpu_ids')
 parser.add_argument('--mode', default='train', choices=['train', 'test'], dest='mode')
 parser.add_argument('--train_continue', default='off', choices=['on', 'off'], dest='train_continue')
 
-parser.add_argument('--scope', default='unet', dest='scope')
+parser.add_argument('--scope', default='resnet', dest='scope')
 parser.add_argument('--norm', type=str, default='inorm', dest='norm')
 
 parser.add_argument('--dir_checkpoint', default='./checkpoints', dest='dir_checkpoint')
 parser.add_argument('--dir_log', default='./log', dest='dir_log')
 
-parser.add_argument('--name_data', type=str, default='bsr', dest='name_data')
+parser.add_argument('--name_data', type=str, default='bsd500', dest='name_data')
 parser.add_argument('--dir_data', default='../datasets', dest='dir_data')
 parser.add_argument('--dir_result', default='./results', dest='dir_result')
 

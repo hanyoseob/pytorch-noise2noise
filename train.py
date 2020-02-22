@@ -68,6 +68,14 @@ class Train:
                    '%s/model_epoch%04d.pth' % (dir_chck, epoch))
 
     def load(self, dir_chck, netG, optimG=[], epoch=[], mode='train'):
+
+        if not os.path.exists(dir_chck):
+            epoch = 0
+            if mode == 'train':
+                return netG, optimG, epoch
+            elif mode == 'test':
+                return netG, epoch
+
         if not epoch:
             ckpt = os.listdir(dir_chck)
             ckpt.sort()
@@ -120,30 +128,29 @@ class Train:
         dir_log_train = os.path.join(self.dir_log, self.scope, name_data, 'train')
         dir_log_val = os.path.join(self.dir_log, self.scope, name_data, 'val')
 
-        dir_result_train = os.path.join(self.dir_result, self.scope, name_data, 'train', 'images')
-        dir_result_val = os.path.join(self.dir_result, self.scope, name_data, 'val', 'images')
-        if not os.path.exists(dir_result_train):
-            os.makedirs(dir_result_train)
-        if not os.path.exists(dir_result_val):
-            os.makedirs(dir_result_val)
+        dir_result_train = os.path.join(self.dir_result, self.scope, name_data, 'train')
+        dir_result_val = os.path.join(self.dir_result, self.scope, name_data, 'val')
+        if not os.path.exists(os.path.join(dir_result_train, 'images')):
+            os.makedirs(os.path.join(dir_result_train, 'images'))
+        if not os.path.exists(os.path.join(dir_result_val, 'images')):
+            os.makedirs(os.path.join(dir_result_val, 'images'))
 
         transform_train = transforms.Compose([Normalize(mean=0.5, std=0.5), RandomFlip(), RandomCrop((self.ny_load, self.nx_load)), ToTensor()])
         transform_val = transforms.Compose([Normalize(mean=0.5, std=0.5), RandomFlip(), RandomCrop((self.ny_load, self.nx_load)), ToTensor()])
 
         transform_inv = transforms.Compose([ToNumpy(), Denormalize(mean=0.5, std=0.5)])
 
-        dataset_train = Dataset(dir_data_train, data_type=self.data_type, transform=transform_train, sgm=25)
-        dataset_val = Dataset(dir_data_val, data_type=self.data_type, transform=transform_val, sgm=25)
+        dataset_train = Dataset(dir_data_train, data_type=self.data_type, transform=transform_train, sgm=(25, 25))
+        dataset_val = Dataset(dir_data_val, data_type=self.data_type, transform=transform_val, sgm=(25, 25))
 
-        loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0)
-        loader_val = torch.utils.data.DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=0)
+        loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=8)
+        loader_val = torch.utils.data.DataLoader(dataset_val, batch_size=batch_size, shuffle=True, num_workers=8)
 
         num_train = len(dataset_train)
         num_val = len(dataset_val)
 
         num_batch_train = int((num_train / batch_size) + ((num_train % batch_size) != 0))
         num_batch_val = int((num_val / batch_size) + ((num_val % batch_size) != 0))
-
 
         if nch_out == 1:
             cmap = 'gray'
@@ -157,7 +164,7 @@ class Train:
         init_net(netG, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
 
         ## setup loss & optimization
-        fn_REG = nn.L1Loss().to(device)      # Regression loss: L1
+        fn_REG = nn.L1Loss().to(device)  # Regression loss: L1
         # fn_REG = nn.MSELoss().to(device)     # Regression loss: L2
 
         paramsG = netG.parameters()
@@ -184,8 +191,8 @@ class Train:
                 def should(freq):
                     return freq > 0 and (batch % freq == 0 or batch == num_batch_train)
 
-                input = data['input'].to(device)
                 label = data['label'].to(device)
+                input = data['input'].to(device)
 
                 # forward netG
                 output = netG(input)
@@ -219,8 +226,8 @@ class Train:
                     writer_train.add_images('label', label, num_batch_train * (epoch - 1) + batch, dataformats='NHWC')
 
                     for j in range(label.shape[0]):
-                        # name = num_train * (epoch - 1) + batch_size * (batch - 1) + j
-                        name = batch_size * (batch - 1) + j
+                        # name = num_train * (epoch - 1) + num_batch_train * (batch - 1) + j
+                        name = num_batch_train * (batch - 1) + j
                         fileset = {'name': name,
                                    'input': "%04d-input.png" % name,
                                    'output': "%04d-output.png" % name,
@@ -272,8 +279,8 @@ class Train:
                         writer_val.add_images('label', label, num_batch_val * (epoch - 1) + batch, dataformats='NHWC')
 
                         for j in range(label.shape[0]):
-                            # name = num_val * (epoch - 1) + batch_size * (batch - 1) + j
-                            name = batch_size * (batch - 1) + j
+                            # name = num_train * (epoch - 1) + num_batch_train * (batch - 1) + j
+                            name = num_batch_train * (batch - 1) + j
                             fileset = {'name': name,
                                        'input': "%04d-input.png" % name,
                                        'output': "%04d-output.png" % name,
@@ -321,10 +328,9 @@ class Train:
         ## setup dataset
         dir_chck = os.path.join(self.dir_checkpoint, self.scope, name_data)
 
-        dir_result = os.path.join(self.dir_result, self.scope, name_data)
-        dir_result_save = os.path.join(dir_result, 'images')
-        if not os.path.exists(dir_result_save):
-            os.makedirs(dir_result_save)
+        dir_result_test = os.path.join(self.dir_result, self.scope, name_data, 'test')
+        if not os.path.exists(os.path.join(dir_result_test, 'images')):
+            os.makedirs(os.path.join(dir_result_test, 'images'))
 
         dir_data_test = os.path.join(self.dir_data, name_data, 'test')
 
@@ -332,7 +338,7 @@ class Train:
         transform_inv = transforms.Compose([ToNumpy(), Denormalize(mean=0.5, std=0.5)])
         transform_ts2np = ToNumpy()
 
-        dataset_test = Dataset(dir_data_test, data_type=self.data_type, transform=transform_test, sgm=25)
+        dataset_test = Dataset(dir_data_test, data_type=self.data_type, transform=transform_test, sgm=(0, 25))
 
         loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -373,8 +379,11 @@ class Train:
 
                 input = transform_inv(input)
                 label = transform_inv(label)
-
                 output = transform_inv(output)
+
+                input = np.clip(input, 0, 1)
+                label = np.clip(label, 0, 1)
+                output = np.clip(output, 0, 1)
 
                 for j in range(label.shape[0]):
                     name = batch_size * (i - 1) + j
@@ -383,11 +392,11 @@ class Train:
                                'output': "%04d-output.png" % name,
                                'label': "%04d-label.png" % name}
 
-                    plt.imsave(os.path.join(dir_result_save, fileset['input']), input[j, :, :, :].squeeze(), cmap=cmap)
-                    plt.imsave(os.path.join(dir_result_save, fileset['output']), output[j, :, :, :].squeeze(), cmap=cmap)
-                    plt.imsave(os.path.join(dir_result_save, fileset['label']), label[j, :, :, :].squeeze(), cmap=cmap)
+                    plt.imsave(os.path.join(dir_result_test, 'images', fileset['input']), input[j, :, :, :].squeeze(), cmap=cmap)
+                    plt.imsave(os.path.join(dir_result_test, 'images', fileset['output']), output[j, :, :, :].squeeze(), cmap=cmap)
+                    plt.imsave(os.path.join(dir_result_test, 'images', fileset['label']), label[j, :, :, :].squeeze(), cmap=cmap)
 
-                    append_index(dir_result, fileset)
+                    append_index(dir_result_test, fileset)
 
                 print('TEST: %d/%d: LOSS: %.6f' % (i, num_batch_test, loss_G.item()))
             print('TEST: AVERAGE LOSS: %.6f' % (np.mean(loss_G_test)))
